@@ -2,44 +2,35 @@
 
 #include <memory>
 
-#include <spdlog/spdlog.h>
-#include <CLI/CLI.hpp>
+#include <entt/entt.hpp>
 
 #include <Engine/Module.hpp>
 
-#include "Engine/dll/Handler.hpp"
+#include "Engine/dll/Handle.hpp"
 
 namespace engine {
-
 namespace core {
 
 class Core {
 public:
-    static auto main([[maybe_unused]] int argc, [[maybe_unused]] char **argv)
-    {
-        spdlog::info("{} - v{}", PROJECT_NAME, PROJECT_VERSION);
+    static auto main(int argc, char **argv) -> int;
 
-        CLI::App app{PROJECT_NAME " description", argv[0]};
-        CLI11_PARSE(app, argc, argv);
+    Core() = default;
+    ~Core() = default;
 
-        try {
-            dll::Handler module_handle{"libexample-d.so"};
+private:
+    auto loadModule(const std::string_view) -> const api::Module *;
 
-            const auto ctor = module_handle.load<api::Module::ctor>("module_ctor");
-            const auto dtor = module_handle.load<api::Module::dtor>("module_dtor");
+    auto loop() -> void;
 
-            const auto ptr = std::unique_ptr<api::Module, api::Module::dtor>(ctor(), dtor);
+private:
+    entt::resource_cache<dll::Handle> m_cache_module_handle;
+    entt::resource_cache<api::Module> m_cache_module;
 
-            spdlog::info(ptr->name());
-            return 0;
+    const api::Module *m_module{nullptr};
 
-        } catch (const dll::Handler::error &e) {
-            spdlog::error("{}", e.what());
-            return 1;
-        }
-    }
+    bool m_is_running{false};
 };
 
 } // namespace core
-
 } // namespace engine

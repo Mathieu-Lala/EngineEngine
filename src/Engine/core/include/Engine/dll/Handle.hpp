@@ -12,22 +12,20 @@
 #endif
 
 namespace engine {
-
 namespace core {
-
 namespace dll {
 
-class Handler {
+class Handle {
 public:
-    Handler() noexcept;
-    Handler(Handler &&) noexcept;
-    Handler &operator=(Handler &&) noexcept;
-    explicit Handler(const std::string_view libpath);
+    Handle() noexcept;
+    Handle(Handle &&) noexcept;
+    Handle &operator=(Handle &&) noexcept;
+    explicit Handle(const std::string_view libpath);
 
-    Handler(const Handler &) = delete;
-    Handler &operator=(const Handler &) = delete;
+    Handle(const Handle &) = delete;
+    Handle &operator=(const Handle &) = delete;
 
-    ~Handler();
+    ~Handle();
 
     bool is_valid() const noexcept;
 
@@ -38,9 +36,9 @@ public:
     T load(const std::string_view symbol_name) const
     {
 #if defined(_WIN32)
-        auto symbol = ::GetProcAddress(this->m_handler, symbol_name.data());
+        auto symbol = ::GetProcAddress(this->m_handle, symbol_name.data());
 #else
-        auto symbol = ::dlsym(this->m_handler, symbol_name.data());
+        auto symbol = ::dlsym(this->m_handle, symbol_name.data());
 #endif
         if (!symbol) throw error{};
 
@@ -55,6 +53,8 @@ public:
         static std::string getLastError();
     };
 
+    static auto set_extension(const std::string_view) noexcept -> std::string;
+
 private:
 #if defined(_WIN32)
     using raw_t = HINSTANCE;
@@ -64,11 +64,9 @@ private:
     static constexpr raw_t EMPTY = nullptr;
 #endif
 
-    raw_t m_handler;
+    raw_t m_handle;
 };
 
 } // namespace dll
-
 } // namespace core
-
 } // namespace engine

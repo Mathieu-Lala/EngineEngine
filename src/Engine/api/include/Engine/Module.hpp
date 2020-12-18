@@ -3,7 +3,6 @@
 #include "Engine/api.hpp"
 
 namespace engine {
-
 namespace api {
 
 class Module {
@@ -21,8 +20,4 @@ public:
 };
 
 } // namespace api
-
 } // namespace engine
-
-// auto module_ctor() -> engine::api::Module *;
-// auto module_dtor(engine::api::Module *) -> void;
