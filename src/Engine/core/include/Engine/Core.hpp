@@ -7,6 +7,7 @@
 #include <Engine/Module.hpp>
 
 #include "Engine/dll/Handle.hpp"
+#include "Engine/graphics/Window.hpp"
 
 namespace engine {
 namespace core {
@@ -19,7 +20,8 @@ public:
     ~Core() = default;
 
 private:
-    auto loadModule(const std::string_view) -> const api::Module *;
+    auto load_module(const std::string_view) -> const api::Module *;
+    auto initialize_graphics(int glfw_context_major, int glfw_context_minor) -> bool;
 
     auto loop() -> void;
 
@@ -30,6 +32,9 @@ private:
     const api::Module *m_module{nullptr};
 
     bool m_is_running{false};
+
+    std::unique_ptr<Window> m_window{};
+
 };
 
 } // namespace core
