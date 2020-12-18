@@ -1,10 +1,6 @@
-#include <iostream>
+#include <Engine/Core.hpp>
 
-#include "Engine/api.hpp"
-#include "Engine/core.hpp"
-
-int main()
+int main(int ac, char **av)
 {
-    std::cout << PROJECT_NAME << " v" << PROJECT_VERSION << "\n";
-    std::cout << "ENGINE_API: " << ENGINE_API << " ENGINE_CORE: " << ENGINE_CORE << "\n";
+    return engine::core::Core::main(ac, av);
 }
