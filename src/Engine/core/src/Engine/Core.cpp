@@ -1,5 +1,6 @@
 #include <spdlog/spdlog.h>
 #include <CLI/CLI.hpp>
+#include <magic_enum.hpp>
 
 #include "Engine/Core.hpp"
 
@@ -10,6 +11,8 @@
 
 auto engine::core::Core::main([[maybe_unused]] int argc, [[maybe_unused]] char **argv) -> int
 {
+    spdlog::set_level(spdlog::level::trace);
+
     spdlog::info("{} - v{}", PROJECT_NAME, PROJECT_VERSION);
 
     std::string module_name{"default"};
@@ -59,6 +62,98 @@ auto engine::core::Core::main([[maybe_unused]] int argc, [[maybe_unused]] char *
     return 0;
 }
 
+struct VAO {
+    enum class DisplayMode : std::uint32_t {
+        POINTS = GL_POINTS,
+        LINE_STRIP = GL_LINE_STRIP,
+        LINE_LOOP = GL_LINE_LOOP,
+        LINES = GL_LINES,
+        LINE_STRIP_ADJACENCY = GL_LINE_STRIP_ADJACENCY,
+        LINES_ADJACENCY = GL_LINES_ADJACENCY,
+        TRIANGLE_STRIP = GL_TRIANGLE_STRIP,
+        TRIANGLE_FAN = GL_TRIANGLE_FAN,
+        TRIANGLES = GL_TRIANGLES,
+        TRIANGLE_STRIP_ADJACENCY = GL_TRIANGLE_STRIP_ADJACENCY,
+        TRIANGLES_ADJACENCY = GL_TRIANGLES_ADJACENCY,
+        PATCHES = GL_PATCHES,
+    };
+
+
+    static constexpr auto DISPLAY_MODES = std::to_array(
+        {VAO::DisplayMode::POINTS,
+         VAO::DisplayMode::LINE_STRIP,
+         VAO::DisplayMode::LINE_LOOP,
+         VAO::DisplayMode::LINES,
+         VAO::DisplayMode::LINE_STRIP_ADJACENCY,
+         VAO::DisplayMode::LINES_ADJACENCY,
+         VAO::DisplayMode::TRIANGLE_STRIP,
+         VAO::DisplayMode::TRIANGLE_FAN,
+         VAO::DisplayMode::TRIANGLES,
+         VAO::DisplayMode::TRIANGLE_STRIP_ADJACENCY,
+         VAO::DisplayMode::TRIANGLES_ADJACENCY,
+         VAO::DisplayMode::PATCHES});
+
+    unsigned int object;
+    DisplayMode mode;
+    GLsizei count;
+
+    static constexpr DisplayMode DEFAULT_MODE{DisplayMode::TRIANGLES};
+
+    static auto emplace(entt::registry &world, const entt::entity &entity) -> VAO &
+    {
+        spdlog::trace("engine::core::VAO: emplace to {}", entity);
+        VAO obj{0u, DEFAULT_MODE, 0};
+        CALL_OPEN_GL(::glGenVertexArrays(1, &obj.object));
+        return world.emplace<VAO>(entity, obj);
+    }
+
+    static auto on_destroy(entt::registry &world, entt::entity entity) -> void
+    {
+        spdlog::trace("engine::core::VAO: destroy of {}", entity);
+        const auto &vao = world.get<VAO>(entity);
+        CALL_OPEN_GL(::glDeleteVertexArrays(1, &vao.object));
+    }
+
+    enum class Attribute { POSITION, COLOR, NORMALS };
+};
+
+template<VAO::Attribute A>
+struct VBO {
+    unsigned int object;
+
+    template<std::size_t S>
+    static auto
+        emplace(entt::registry &world, const entt::entity &entity, const std::array<float, S> &vertices, int stride_size)
+            -> VBO<A> &
+    {
+        spdlog::trace("engine::core::VBO<{}>: emplace to {}", magic_enum::enum_name(A).data(), entity);
+
+        const VAO *vao{nullptr};
+        if (vao = world.try_get<VAO>(entity); !vao) { vao = &VAO::emplace(world, entity); }
+        CALL_OPEN_GL(::glBindVertexArray(vao->object));
+
+        VBO<A> obj{0u};
+        CALL_OPEN_GL(::glGenBuffers(1, &obj.object));
+
+        CALL_OPEN_GL(::glBindBuffer(GL_ARRAY_BUFFER, obj.object));
+        CALL_OPEN_GL(::glBufferData(GL_ARRAY_BUFFER, S * sizeof(float), vertices.data(), GL_STATIC_DRAW));
+        CALL_OPEN_GL(::glVertexAttribPointer(
+            static_cast<GLuint>(A), stride_size, GL_FLOAT, GL_FALSE, stride_size * static_cast<int>(sizeof(float)), 0));
+        CALL_OPEN_GL(::glEnableVertexAttribArray(static_cast<GLuint>(A)));
+
+        world.patch<VAO>(entity, [](VAO &vao_obj) { vao_obj.count = S; });
+
+        return world.emplace<VBO<A>>(entity, obj);
+    }
+
+    static auto on_destroy(entt::registry &world, entt::entity entity) -> void
+    {
+        spdlog::trace("engine::core::VBO<{}>: destroy of {}", magic_enum::enum_name(A).data(), entity);
+        const auto &vbo = world.get<VBO<A>>(entity);
+        CALL_OPEN_GL(::glDeleteBuffers(1, &vbo.object));
+    }
+};
+
 auto engine::core::Core::loop() -> void
 {
     constexpr auto VERT_SH = R"(#version 450
@@ -80,7 +175,7 @@ void main()
     Shader shader(VERT_SH, FRAG_SH);
     shader.use();
 
-    float vertices[] = {
+    constexpr auto vertices = std::to_array({
         -0.5f,
         -0.5f,
         0.0f, // left
@@ -90,16 +185,18 @@ void main()
         0.0f,
         0.5f,
         0.0f // top
-    };
+    });
 
-    unsigned int VBO, VAO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    glBindVertexArray(VAO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), 0);
-    glEnableVertexAttribArray(0);
+    entt::registry world;
+    world.on_destroy<VAO>().connect<VAO::on_destroy>();
+    world.on_destroy<VBO<VAO::Attribute::POSITION>>().connect<VBO<VAO::Attribute::POSITION>::on_destroy>();
+
+    {
+        const auto entity = world.create();
+        VBO<VAO::Attribute::POSITION>::emplace(world, entity, vertices, 3);
+    }
+
+    auto display_mode = VAO::DEFAULT_MODE;
 
     m_is_running = true;
     while (m_is_running && m_window->isOpen()) {
@@ -110,18 +207,44 @@ void main()
         ImGui::NewFrame();
 
         ImGui::ShowMetricsWindow();
+
+        ImGui::Begin("Display Options");
+
+        constexpr auto enum_name = magic_enum::enum_type_name<VAO::DisplayMode>();
+        if (ImGui::BeginCombo(
+                "##combo",
+                fmt::format("{} = {}", enum_name.data(), magic_enum::enum_name(display_mode)).data())) {
+            for (const auto &i : VAO::DISPLAY_MODES) {
+                const auto is_selected = display_mode == i;
+                if (ImGui::Selectable(magic_enum::enum_name(i).data(), is_selected)) {
+                    display_mode = i;
+                    for (const auto &entity : world.view<VAO>()) {
+                        world.patch<VAO>(entity, [&display_mode](VAO &vao) { vao.mode = display_mode; });
+                    }
+                }
+                if (is_selected) { ImGui::SetItemDefaultFocus(); }
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::End(); // Display Options
+
         ImGui::Render();
 
-        ::glClearColor(0.0f, 1.0f, 0.2f, 1.0f);
-        ::glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        CALL_OPEN_GL(::glClearColor(0.0f, 1.0f, 0.2f, 1.0f));
+        CALL_OPEN_GL(::glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
-        glBindVertexArray(VAO);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
+        world.view<VAO>().each([](const auto &vao) {
+            CALL_OPEN_GL(::glBindVertexArray(vao.object));
+            CALL_OPEN_GL(::glDrawArrays(static_cast<GLenum>(vao.mode), 0, vao.count));
+        });
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         m_window->render();
     }
+
+    world.clear();
 }
 
 auto engine::core::Core::load_module(const std::string_view name) -> const api::Module *
