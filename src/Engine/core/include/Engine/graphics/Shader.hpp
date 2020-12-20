@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <string_view>
 
+#include <glm/gtc/type_ptr.hpp>
+
 #include "Engine/graphics/third_party.hpp"
 
 namespace engine {
@@ -75,11 +77,33 @@ public:
 
     auto use() const noexcept -> void { CALL_OPEN_GL(::glUseProgram(ID)); }
 
-    // template<typename T>
-    // auto setUniform(const std::string_view, T) -> void;
+    template<typename T>
+    auto setUniform(const std::string_view, T) -> void;
 
 private:
     std::uint32_t ID;
 };
+
+template<>
+auto Shader::setUniform(const std::string_view name, bool v) -> void
+{
+    if (const auto location = ::glGetUniformLocation(ID, name.data()); location != -1)
+        CALL_OPEN_GL(::glUniform1ui(location, v));
+}
+
+template<>
+auto Shader::setUniform(const std::string_view name, float v) -> void
+{
+    if (const auto location = ::glGetUniformLocation(ID, name.data()); location != -1)
+        CALL_OPEN_GL(::glUniform1f(location, v));
+}
+
+template<>
+auto Shader::setUniform(const std::string_view name, glm::mat4 mat) -> void
+{
+    if (const auto location = ::glGetUniformLocation(ID, name.data()); location != -1)
+        CALL_OPEN_GL(::glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(mat)));
+}
+
 
 } // namespace engine

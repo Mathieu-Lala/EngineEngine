@@ -1,6 +1,10 @@
+#include <cmath>
+
 #include <spdlog/spdlog.h>
 #include <CLI/CLI.hpp>
 #include <magic_enum.hpp>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include "Engine/Core.hpp"
 
@@ -45,6 +49,7 @@ auto engine::core::Core::main([[maybe_unused]] int argc, [[maybe_unused]] char *
     }
 
     core.m_window = std::make_unique<Window>(window_width, window_height, PROJECT_NAME " - Rendering window");
+    ::glfwSwapInterval(0);
 
     if (const auto err = ::glewInit(); err != GLEW_OK) {
         spdlog::error("Engine::Core GLEW An error occured '{}' 'code={}'", ::glewGetErrorString(err), err);
@@ -154,49 +159,133 @@ struct VBO {
     }
 };
 
+template<std::size_t D, typename T>
+struct Position {
+    glm::vec<static_cast<int>(D), T> vec;
+};
+
+using Position3f = Position<3, float>;
+
+template<std::size_t D, typename T>
+struct Rotation {
+    glm::vec<static_cast<int>(D), T> vec;
+};
+
+using Rotation3f = Rotation<3, float>;
+
+template<std::size_t D, typename T>
+struct Scale {
+    glm::vec<static_cast<int>(D), T> vec;
+};
+
+using Scale3f = Scale<3, float>;
+
+namespace widget {
+
+auto debugSwitchDisplayMode(entt::registry &world, VAO::DisplayMode &display_mode)
+{
+    constexpr auto enum_name = magic_enum::enum_type_name<VAO::DisplayMode>();
+    if (ImGui::BeginCombo(
+            "##combo", fmt::format("{} = {}", enum_name.data(), magic_enum::enum_name(display_mode)).data())) {
+        for (const auto &i : VAO::DISPLAY_MODES) {
+            const auto is_selected = display_mode == i;
+            if (ImGui::Selectable(magic_enum::enum_name(i).data(), is_selected)) {
+                display_mode = i;
+                for (const auto &entity : world.view<VAO>()) {
+                    world.patch<VAO>(entity, [&display_mode](VAO &vao) { vao.mode = display_mode; });
+                }
+            }
+            if (is_selected) { ImGui::SetItemDefaultFocus(); }
+        }
+        ImGui::EndCombo();
+    }
+}
+
+} // namespace widget
+
 auto engine::core::Core::loop() -> void
 {
     constexpr auto VERT_SH = R"(#version 450
-layout (location = 0) in vec3 aPos;
+layout (location = 0) in vec3 inPos;
+layout (location = 1) in vec4 inColors;
+
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+
+out vec4 fragColors;
+
 void main()
 {
-    gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);
+    gl_Position = projection * view * model * vec4(inPos, 1.0f);
+
+    fragColors = inColors;
 }
 )";
 
     constexpr auto FRAG_SH = R"(#version 450
+in vec4 fragColors;
+
 out vec4 FragColor;
+
 void main()
 {
-    FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);
+    FragColor = fragColors;
 }
 )";
 
+    CALL_OPEN_GL(::glEnable(GL_DEPTH_TEST));
+
     Shader shader(VERT_SH, FRAG_SH);
     shader.use();
-
-    constexpr auto vertices = std::to_array({
-        -0.5f,
-        -0.5f,
-        0.0f, // left
-        0.5f,
-        -0.5f,
-        0.0f, // right
-        0.0f,
-        0.5f,
-        0.0f // top
-    });
 
     entt::registry world;
     world.on_destroy<VAO>().connect<VAO::on_destroy>();
     world.on_destroy<VBO<VAO::Attribute::POSITION>>().connect<VBO<VAO::Attribute::POSITION>::on_destroy>();
 
     {
-        const auto entity = world.create();
-        VBO<VAO::Attribute::POSITION>::emplace(world, entity, vertices, 3);
+        constexpr auto positions = std::to_array({
+            -0.5f,
+            -0.5f,
+            0.0f, // left
+            0.5f,
+            -0.5f,
+            0.0f, // right
+            0.0f,
+            0.5f,
+            0.0f // top
+        });
+
+        constexpr auto colors = std::to_array({
+            1.0f,
+            0.0f,
+            0.0f,
+            1.0f, // left
+            0.0f,
+            1.0f,
+            0.0f,
+            1.0f, // right
+            0.0f,
+            0.0f,
+            1.0f,
+            1.0f, // top
+        });
+
+        for (int i = 0; i != 10; i++) {
+            const auto entity = world.create();
+            VBO<VAO::Attribute::POSITION>::emplace(world, entity, positions, 3);
+            VBO<VAO::Attribute::COLOR>::emplace(world, entity, colors, 4);
+            world.emplace<Position3f>(entity, glm::vec3{i * 1.5, 0, 0});
+            world.emplace<Rotation3f>(entity, glm::vec3{i * 10, i * 10, i * 10});
+            world.emplace<Scale3f>(entity, glm::vec3{i, i, i});
+        }
     }
 
     auto display_mode = VAO::DEFAULT_MODE;
+
+    const auto projection =
+        glm::perspective(glm::radians(45.0f), m_window->getAspectRatio<float>(), 0.1f, 100.0f);
+    shader.setUniform("projection", projection);
 
     m_is_running = true;
     while (m_is_running && m_window->isOpen()) {
@@ -208,36 +297,79 @@ void main()
 
         ImGui::ShowMetricsWindow();
 
-        ImGui::Begin("Display Options");
+        ImGui::Begin("Display Options", nullptr, ImGuiWindowFlags_NoBackground);
 
-        constexpr auto enum_name = magic_enum::enum_type_name<VAO::DisplayMode>();
-        if (ImGui::BeginCombo(
-                "##combo",
-                fmt::format("{} = {}", enum_name.data(), magic_enum::enum_name(display_mode)).data())) {
-            for (const auto &i : VAO::DISPLAY_MODES) {
-                const auto is_selected = display_mode == i;
-                if (ImGui::Selectable(magic_enum::enum_name(i).data(), is_selected)) {
-                    display_mode = i;
-                    for (const auto &entity : world.view<VAO>()) {
-                        world.patch<VAO>(entity, [&display_mode](VAO &vao) { vao.mode = display_mode; });
-                    }
-                }
-                if (is_selected) { ImGui::SetItemDefaultFocus(); }
-            }
-            ImGui::EndCombo();
-        }
+        widget::debugSwitchDisplayMode(world, display_mode);
 
         ImGui::End(); // Display Options
 
         ImGui::Render();
 
-        CALL_OPEN_GL(::glClearColor(0.0f, 1.0f, 0.2f, 1.0f));
+        const auto radius = 10.0f;
+        const auto camX = static_cast<float>(std::sin(::glfwGetTime())) * radius;
+        const auto camY = static_cast<float>(std::sin(::glfwGetTime())) * radius;
+        const auto camZ = static_cast<float>(std::cos(::glfwGetTime())) * radius;
+        const auto view =
+            glm::lookAt(glm::vec3(camX, camY, camZ), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        shader.setUniform("view", view);
+
+        constexpr auto CLEAR_COLOR = glm::vec4{0.0f, 1.0f, 0.2f, 1.0f};
+
+        CALL_OPEN_GL(::glClearColor(CLEAR_COLOR.r, CLEAR_COLOR.g, CLEAR_COLOR.b, CLEAR_COLOR.a));
         CALL_OPEN_GL(::glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
-        world.view<VAO>().each([](const auto &vao) {
-            CALL_OPEN_GL(::glBindVertexArray(vao.object));
-            CALL_OPEN_GL(::glDrawArrays(static_cast<GLenum>(vao.mode), 0, vao.count));
+        const auto render =
+            [&shader](const VAO &vao, const Position3f &pos, const Rotation3f &rot, const Scale3f &scale) {
+                auto model = glm::mat4(1.0f);
+                model = glm::translate(model, pos.vec);
+                model = glm::rotate(model, glm::radians(rot.vec.x), glm::vec3(1.0f, 0.0f, 0.0f));
+                model = glm::rotate(model, glm::radians(rot.vec.y), glm::vec3(0.0f, 1.0f, 0.0f));
+                model = glm::rotate(model, glm::radians(rot.vec.z), glm::vec3(0.0f, 0.0f, 1.0f));
+                model = glm::scale(model, scale.vec);
+                shader.setUniform("model", model);
+
+                CALL_OPEN_GL(::glBindVertexArray(vao.object));
+                CALL_OPEN_GL(::glDrawArrays(static_cast<GLenum>(vao.mode), 0, vao.count));
+            };
+
+        [[maybe_unused]] static constexpr auto NO_POSITION = glm::vec3{0.0f, 0.0f, 0.0f};
+        [[maybe_unused]] static constexpr auto NO_ROTATION = glm::vec3{0.0f, 0.0f, 0.0f};
+        [[maybe_unused]] static constexpr auto NO_SCALE = glm::vec3{1.0f, 1.0f, 1.0f};
+
+        world.view<VAO>(entt::exclude<Position3f, Rotation3f, Scale3f>).each([&render](const auto &vao) {
+            render(vao, {NO_POSITION}, {NO_ROTATION}, {NO_SCALE});
         });
+
+        world.view<VAO, Position3f>(entt::exclude<Rotation3f, Scale3f>)
+            .each([&render](const auto &vao, const auto &pos) { render(vao, pos, {NO_ROTATION}, {NO_SCALE}); });
+
+        world.view<VAO, Rotation3f>(entt::exclude<Position3f, Scale3f>)
+            .each([&render](const auto &vao, const auto &rot) { render(vao, {NO_POSITION}, rot, {NO_SCALE}); });
+
+        world.view<VAO, Scale3f>(entt::exclude<Position3f, Rotation3f>)
+            .each([&render](const auto &vao, const auto &scale) {
+                render(vao, {NO_POSITION}, {NO_ROTATION}, scale);
+            });
+
+        world.view<VAO, Position3f, Scale3f>(entt::exclude<Rotation3f>)
+            .each([&render](const auto &vao, const auto &pos, const auto &scale) {
+                render(vao, pos, {NO_ROTATION}, scale);
+            });
+
+        world.view<VAO, Rotation3f, Scale3f>(entt::exclude<Position3f>)
+            .each([&render](const auto &vao, const auto &rot, const auto &scale) {
+                render(vao, {NO_POSITION}, rot, scale);
+            });
+
+        world.view<VAO, Position3f, Rotation3f>(entt::exclude<Scale3f>)
+            .each([&render](const auto &vao, const auto &pos, const auto &rot) {
+                render(vao, pos, rot, {NO_SCALE});
+            });
+
+        world.view<VAO, Position3f, Rotation3f, Scale3f>().each(
+            [&render](const auto &vao, const auto &pos, const auto &rot, const auto &scale) {
+                render(vao, pos, rot, scale);
+            });
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 

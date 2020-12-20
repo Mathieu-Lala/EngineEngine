@@ -42,6 +42,15 @@ public:
 
     auto render() -> void { ::glfwSwapBuffers(m_handle); }
 
+    template<typename T = double>
+    [[nodiscard]] auto getAspectRatio() const noexcept
+    {
+        int width{};
+        int height{};
+        ::glfwGetWindowSize(m_handle, &width, &height);
+        return static_cast<T>(width) / static_cast<T>(height);
+    }
+
 private:
     ::GLFWwindow *m_handle{nullptr};
     ::ImGuiContext *m_ui_context{nullptr};
