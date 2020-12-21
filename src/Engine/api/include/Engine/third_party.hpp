@@ -16,6 +16,9 @@
 
 #ifndef NDEBUG
 
+#include <stdexcept>
+#include <spdlog/spdlog.h>
+
 namespace engine::core {
 
 inline constexpr auto GetGLErrorStr(GLenum err)

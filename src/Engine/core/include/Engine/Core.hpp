@@ -8,6 +8,7 @@
 
 #include "Engine/dll/Handle.hpp"
 #include "Engine/graphics/Window.hpp"
+#include "Engine/graphics/Shader.hpp"
 
 namespace engine {
 namespace core {
@@ -24,6 +25,9 @@ private:
     auto initialize_graphics(int glfw_context_major, int glfw_context_minor) -> bool;
 
     auto loop() -> void;
+
+private:
+    auto system_rendering(Shader &, /* const */ entt::registry &) const noexcept;
 
 private:
     entt::resource_cache<dll::Handle> m_cache_module_handle;

@@ -5,7 +5,7 @@
 
 #include <glm/gtc/type_ptr.hpp>
 
-#include "Engine/graphics/third_party.hpp"
+#include "Engine/third_party.hpp"
 
 namespace engine {
 

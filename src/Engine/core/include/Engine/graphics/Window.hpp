@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Engine/graphics/third_party.hpp"
+#include "Engine/third_party.hpp"
 
 namespace engine {
 namespace core {
