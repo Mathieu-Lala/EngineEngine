@@ -16,8 +16,8 @@
 
 #ifndef NDEBUG
 
-#include <stdexcept>
-#include <spdlog/spdlog.h>
+#    include <stdexcept>
+#    include <spdlog/spdlog.h>
 
 namespace engine::core {
 
@@ -37,19 +37,26 @@ inline constexpr auto GetGLErrorStr(GLenum err)
 
 } // namespace engine::core
 
-#    define CALL_OPEN_GL(call)                                                           \
-        do {                                                                             \
-            call;                                                                        \
-            if (const auto err = ::glGetError(); GL_NO_ERROR != err) {                   \
-                if constexpr (!noexcept(__func__)) {                                     \
-                    throw std::runtime_error(engine::core::GetGLErrorStr(err));          \
-                } else {                                                                 \
-                    spdlog::error("CALL_OPEN_GL: {}", engine::core::GetGLErrorStr(err)); \
-                }                                                                        \
-            }                                                                            \
+#    define SHOW_ERROR(err)                                        \
+        do {                                                       \
+            spdlog::error("CALL_OPEN_GL: {}", engine::core::GetGLErrorStr(err)); \
+        } while (0)
+
+#    define CALL_OPEN_GL(call)                                                  \
+        do {                                                                    \
+            call;                                                               \
+            if (const auto err = ::glGetError(); GL_NO_ERROR != err) {          \
+                if constexpr (!noexcept(__func__)) {                            \
+                    throw std::runtime_error(engine::core::GetGLErrorStr(err)); \
+                } else {                                                        \
+                    SHOW_ERROR(err);                                            \
+                }                                                               \
+            }                                                                   \
         } while (0)
 
 #else
+
+#    define SHOW_ERROR(err)
 
 #    define CALL_OPEN_GL(call) \
         do {                   \

@@ -4,6 +4,7 @@
 #include <string_view>
 
 #include <glm/gtc/type_ptr.hpp>
+#include <spdlog/spdlog.h>
 
 #include "Engine/third_party.hpp"
 
@@ -16,7 +17,7 @@ struct shader_ {
     explicit shader_(const char *source) : ID{::glCreateShader(type)}
     {
         if (ID == 0) {
-            spdlog::error("CALL_OPEN_GL: {}", engine::core::GetGLErrorStr(::glGetError()));
+            SHOW_ERROR(::glGetError());
             return;
         }
 

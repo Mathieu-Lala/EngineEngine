@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <array>
+#include <variant>
 
 #include <entt/entt.hpp>
 #include <spdlog/spdlog.h>
@@ -13,6 +14,8 @@ namespace engine {
 namespace api {
 
 struct VAO {
+    static constexpr std::string_view name{"VAO"};
+
     enum class DisplayMode : std::uint32_t {
         POINTS = GL_POINTS,
         LINE_STRIP = GL_LINE_STRIP,
@@ -68,6 +71,9 @@ struct VAO {
 
 template<VAO::Attribute A>
 struct VBO {
+    // static constexpr std::string name{std::string("VBO") + magic_enum::enum_name(A)};
+    static constexpr std::string_view name{"VBO"};
+
     unsigned int object;
 
     template<std::size_t S>
@@ -104,6 +110,8 @@ struct VBO {
 };
 
 struct EBO {
+    static constexpr std::string_view name{"EBO"};
+
     unsigned int object;
 
     template<std::size_t S>
@@ -138,6 +146,8 @@ struct EBO {
 
 template<std::size_t D, typename T>
 struct Position {
+    static constexpr std::string_view name{"Position"};
+
     glm::vec<static_cast<int>(D), T> vec;
 };
 
@@ -145,6 +155,8 @@ using Position3f = Position<3, float>;
 
 template<std::size_t D, typename T>
 struct Rotation {
+    static constexpr std::string_view name{"Rotation"};
+
     glm::vec<static_cast<int>(D), T> vec;
 };
 
@@ -152,10 +164,21 @@ using Rotation3f = Rotation<3, float>;
 
 template<std::size_t D, typename T>
 struct Scale {
+    static constexpr std::string_view name{"Scale"};
+
     glm::vec<static_cast<int>(D), T> vec;
 };
 
 using Scale3f = Scale<3, float>;
+
+struct Name {
+    static constexpr std::string_view name{"Name"};
+
+    std::string str;
+};
+
+using Component =
+    std::variant<std::monostate, VAO, EBO, VBO<VAO::Attribute::POSITION>, VBO<VAO::Attribute::COLOR>, Position3f, Rotation3f, Scale3f, Name>;
 
 } // namespace api
 } // namespace engine
