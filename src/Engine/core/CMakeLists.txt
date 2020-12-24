@@ -1,4 +1,5 @@
-add_library(engine_core SHARED src/Engine/Core.cpp src/Engine/dll/Handle.cpp)
+add_library(engine_core SHARED src/Engine/Core.cpp src/Engine/dll/Handle.cpp src/Engine/graphics/Window.cpp
+                               src/Engine/graphics/Shader.cpp src/Engine/EventManager.cpp)
 target_include_directories(engine_core PUBLIC include)
 target_link_libraries(
   engine_core

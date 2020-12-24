@@ -18,6 +18,8 @@
 #include "Engine/widget/DisplayOption.hpp"
 #include "Engine/widget/ComponentTree.hpp"
 
+#include "Engine/helpers/overloaded.hpp"
+
 auto engine::core::Core::main([[maybe_unused]] int argc, [[maybe_unused]] char **argv) -> int
 {
     spdlog::set_level(spdlog::level::trace);
@@ -55,7 +57,7 @@ auto engine::core::Core::main([[maybe_unused]] int argc, [[maybe_unused]] char *
     }
 
     core.m_window = std::make_unique<Window>(window_width, window_height, PROJECT_NAME " - Rendering window");
-    ::glfwSwapInterval(0);
+    core.m_event_manager.registerWindow(*core.m_window);
 
     if (const auto err = ::glewInit(); err != GLEW_OK) {
         spdlog::error("Engine::Core GLEW An error occured '{}' 'code={}'", ::glewGetErrorString(err), err);
@@ -69,8 +71,15 @@ auto engine::core::Core::main([[maybe_unused]] int argc, [[maybe_unused]] char *
 
     spdlog::info("{}", core.m_module->name());
 
+    ::glfwSwapInterval(0);
+
     core.loop();
     return 0;
+}
+
+engine::core::Core::~Core()
+{
+    ::glfwTerminate();
 }
 
 auto engine::core::Core::system_rendering(Shader &shader, entt::registry &world) const noexcept
@@ -195,9 +204,9 @@ constexpr auto triangle_positions = std::to_array({
 });
 
 constexpr auto triangle_colors = std::to_array({
-    1.0f, 0.0f, 0.0f, 1.0f, // left
-    0.0f, 1.0f, 0.0f, 1.0f, // right
-    0.0f, 0.0f, 1.0f, 1.0f, // top
+    1.0f, 0.0f, 0.0f, 0.5f, // left
+    0.0f, 1.0f, 0.0f, 0.5f, // right
+    0.0f, 0.0f, 1.0f, 0.5f, // top
 });
 
 constexpr auto square_positions = std::to_array({
@@ -291,6 +300,9 @@ void main()
 )";
 
     CALL_OPEN_GL(::glEnable(GL_DEPTH_TEST));
+    CALL_OPEN_GL(::glEnable(GL_BLEND));
+    CALL_OPEN_GL(::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+
 
     Shader shader(VERT_SH, FRAG_SH);
     shader.use();
@@ -337,61 +349,84 @@ void main()
     struct widgetDebugHandle {
         const std::string_view name;
         bool flag;
-        std::function<void()> callable;
+        std::function<void(bool &)> callable;
     };
 
     auto debugWidget = std::to_array<widgetDebugHandle>(
-        {{"Metrics", false, [] { ImGui::ShowMetricsWindow(); }},
-         {"Demo", false, [] { ImGui::ShowDemoWindow(); }},
+        {{"Metrics", false, [](bool &flag) { ImGui::ShowMetricsWindow(&flag); }},
+         {"Demo", false, [](bool &flag) { ImGui::ShowDemoWindow(&flag); }},
          {"Display Options",
           false,
-          [widget = widget::DisplayMode{}, &world, &display_mode] {
-              ImGui::Begin("Display Options", nullptr);
+          [widget = widget::DisplayMode{}, &world, &display_mode](bool &flag) {
+              ImGui::Begin("Display Options", &flag);
               widget.draw(world, display_mode);
               ImGui::End();
           }},
-         {"Components Tree", false, [widget = widget::ComponentTree{}, &world] {
-              ImGui::Begin("Components", nullptr);
+         {"Components Tree", false, [widget = widget::ComponentTree{}, &world](bool &flag) {
+              ImGui::Begin("Components", &flag);
               widget.draw(world);
               ImGui::End();
           }}});
 
     m_is_running = true;
     while (m_is_running && m_window->isOpen()) {
-        ::glfwPollEvents();
+        const auto event = m_event_manager.getNextEvent();
 
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
+        bool timeElapsed{false};
 
-        ImGui::Begin("Debug Panel", nullptr, ImGuiWindowFlags_NoBackground);
-        for (auto &[name, flag, _] : debugWidget) { ImGui::Checkbox(name.data(), &flag); }
-        ImGui::End(); // Debug Panel
+        std::visit(
+            overloaded{
+                [&](const api::OpenWindow &) {
+                    spdlog::info("window opened");
+                    m_event_manager.setCurrentTimepoint(std::chrono::steady_clock::now());
+                },
+                [&](const api::CloseWindow &) {
+                    m_is_running = false;
+                    spdlog::info("window closed");
+                },
+                [&timeElapsed](const api::TimeElapsed &) { timeElapsed = true; },
+                [&](const api::Pressed<api::MouseButton> &e) { m_window->useEvent(e); },
+                [&](const api::Released<api::MouseButton> &e) { m_window->useEvent(e); },
+                [&](const api::Pressed<api::Key> &e) { m_window->useEvent(e); },
+                [&](const api::Released<api::Key> &e) { m_window->useEvent(e); },
+                [&](const api::Character &e) { m_window->useEvent(e); },
+                [](const auto &) {}},
+            event);
 
-        for (const auto &[_, flag, func] : debugWidget) {
-            if (flag) { func(); }
+        if (timeElapsed) {
+            ImGui_ImplOpenGL3_NewFrame();
+            ImGui_ImplGlfw_NewFrame();
+            ImGui::NewFrame();
+
+            ImGui::Begin("Debug Panel", nullptr);
+            for (auto &[name, flag, _] : debugWidget) { ImGui::Checkbox(name.data(), &flag); }
+            ImGui::End(); // Debug Panel
+
+            for (auto &[_, flag, func] : debugWidget) {
+                if (flag) { func(flag); }
+            }
+
+            ImGui::Render();
+
+            const auto radius = 10.0f;
+            const auto camX = static_cast<float>(std::sin(::glfwGetTime())) * radius;
+            const auto camY = static_cast<float>(std::sin(::glfwGetTime())) * radius;
+            const auto camZ = static_cast<float>(std::cos(::glfwGetTime())) * radius;
+            const auto view = glm::lookAt(
+                glm::vec3(camX, camY, camZ), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+            shader.setUniform("view", view);
+
+            constexpr auto CLEAR_COLOR = glm::vec4{0.0f, 1.0f, 0.2f, 1.0f};
+
+            CALL_OPEN_GL(::glClearColor(CLEAR_COLOR.r, CLEAR_COLOR.g, CLEAR_COLOR.b, CLEAR_COLOR.a));
+            CALL_OPEN_GL(::glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+
+            system_rendering(shader, world);
+
+            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+            m_window->render();
         }
-
-        ImGui::Render();
-
-        const auto radius = 10.0f;
-        const auto camX = static_cast<float>(std::sin(::glfwGetTime())) * radius;
-        const auto camY = static_cast<float>(std::sin(::glfwGetTime())) * radius;
-        const auto camZ = static_cast<float>(std::cos(::glfwGetTime())) * radius;
-        const auto view =
-            glm::lookAt(glm::vec3(camX, camY, camZ), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-        shader.setUniform("view", view);
-
-        constexpr auto CLEAR_COLOR = glm::vec4{0.0f, 1.0f, 0.2f, 1.0f};
-
-        CALL_OPEN_GL(::glClearColor(CLEAR_COLOR.r, CLEAR_COLOR.g, CLEAR_COLOR.b, CLEAR_COLOR.a));
-        CALL_OPEN_GL(::glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
-
-        system_rendering(shader, world);
-
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-        m_window->render();
     }
 
     world.clear();

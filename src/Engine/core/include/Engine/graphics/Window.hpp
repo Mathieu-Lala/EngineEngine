@@ -1,46 +1,26 @@
 #pragma once
 
 #include "Engine/third_party.hpp"
+#include "Engine/Event.hpp"
 
 namespace engine {
 namespace core {
 
+class Core;
+
 class Window {
 public:
-    Window(int width, int height, const std::string_view name)
-    {
-        m_handle = ::glfwCreateWindow(width, height, name.data(), nullptr, nullptr);
-        if (m_handle == nullptr) { throw std::logic_error("Engine::Window initialization failed"); }
-        ::glfwMakeContextCurrent(m_handle);
-    }
+    Window(int width, int height, const std::string_view name);
 
-    auto create_ui_context() -> bool
-    {
-        IMGUI_CHECKVERSION();
+    ~Window();
 
-        m_ui_context = ImGui::CreateContext();
-        if (!m_ui_context) { return false; }
+    auto get() const noexcept -> ::GLFWwindow * { return m_handle; }
 
-        if (!ImGui_ImplGlfw_InitForOpenGL(m_handle, true)) { return false; }
+    auto create_ui_context() -> bool;
 
-        if (!ImGui_ImplOpenGL3_Init()) { return false; }
+    [[nodiscard]] auto isOpen() const noexcept -> bool;
 
-        return true;
-    }
-
-    ~Window()
-    {
-        ImGui_ImplOpenGL3_Shutdown();
-        ImGui_ImplGlfw_Shutdown();
-
-        ImGui::DestroyContext(m_ui_context);
-
-        ::glfwDestroyWindow(m_handle);
-    }
-
-    [[nodiscard]] auto isOpen() const noexcept -> bool { return ::glfwWindowShouldClose(m_handle) == GLFW_FALSE; }
-
-    auto render() -> void { ::glfwSwapBuffers(m_handle); }
+    auto render() -> void;
 
     template<typename T = double>
     [[nodiscard]] auto getAspectRatio() const noexcept
@@ -51,10 +31,31 @@ public:
         return static_cast<T>(width) / static_cast<T>(height);
     }
 
+    template<typename EventType>
+    auto useEvent([[maybe_unused]] const EventType &) -> void
+    {
+        spdlog::warn("Window#useEvent<T>() : T={} not implemented", EventType::name);
+    }
+
 private:
     ::GLFWwindow *m_handle{nullptr};
     ::ImGuiContext *m_ui_context{nullptr};
 };
+
+template<>
+auto Window::useEvent(const api::Pressed<api::MouseButton> &) -> void;
+
+template<>
+auto Window::useEvent(const api::Released<api::MouseButton> &) -> void;
+
+template<>
+auto Window::useEvent(const api::Pressed<api::Key> &) -> void;
+
+template<>
+auto Window::useEvent(const api::Released<api::Key> &) -> void;
+
+template<>
+auto Window::useEvent(const api::Character &) -> void;
 
 } // namespace core
 } // namespace engine

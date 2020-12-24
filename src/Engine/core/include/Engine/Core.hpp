@@ -6,6 +6,7 @@
 
 #include <Engine/Module.hpp>
 
+#include "Engine/EventManager.hpp"
 #include "Engine/dll/Handle.hpp"
 #include "Engine/graphics/Window.hpp"
 #include "Engine/graphics/Shader.hpp"
@@ -18,7 +19,9 @@ public:
     static auto main(int argc, char **argv) -> int;
 
     Core() = default;
-    ~Core() = default;
+    ~Core();
+
+    auto getEventManager() -> EventManager & { return m_event_manager; }
 
 private:
     auto load_module(const std::string_view) -> const api::Module *;
@@ -38,6 +41,8 @@ private:
     bool m_is_running{false};
 
     std::unique_ptr<Window> m_window{};
+
+    EventManager m_event_manager;
 
 };
 
