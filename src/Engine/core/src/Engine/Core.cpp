@@ -194,80 +194,6 @@ auto engine::core::Core::system_rendering(Shader &shader, entt::registry &world)
         });
 }
 
-namespace data { // tmp
-
-// clang-format off
-constexpr auto triangle_positions = std::to_array({
-    -0.5f, -0.5f, 0.0f, // left
-    0.5f, -0.5f, 0.0f, // right
-    0.0f, 0.5f, 0.0f // top
-});
-
-constexpr auto triangle_colors = std::to_array({
-    1.0f, 0.0f, 0.0f, 0.5f, // left
-    0.0f, 1.0f, 0.0f, 0.5f, // right
-    0.0f, 0.0f, 1.0f, 0.5f, // top
-});
-
-constexpr auto square_positions = std::to_array({
-    0.5f, 0.5f, 0.0f, // top right
-    0.5f, -0.5f, 0.0f, // bottom right
-    -0.5f, -0.5f, 0.0f, // bottom left
-    -0.5f, 0.5f, 0.0f // top left
-});
-
-constexpr auto square_colors = std::to_array({
-    1.0f, 0.0f, 1.0f, 1.0f,// top right
-    1.0f, 1.0f, 0.0f, 1.0f, // bottom right
-    0.0f, 1.0f, 1.0f, 1.0f, // bottom left
-    1.0f, 0.0f, 1.0f, 1.0f// top left
-});
-
-constexpr auto square_indices = std::to_array({
-    0u, 1u, 3u, // first triangle
-    1u, 2u, 3u // second triangle
-});
-
-constexpr auto cube_positions = std::to_array({
-    -0.5f, 0.5f,  -0.5f, // Point A 0
-    -0.5f, 0.5f,  0.5f,  // Point B 1
-    0.5f,  0.5f,  -0.5f, // Point C 2
-    0.5f,  0.5f,  0.5f,  // Point D 3
-    -0.5f, -0.5f, -0.5f, // Point E 4
-    -0.5f, -0.5f, 0.5f,  // Point F 5
-    0.5f,  -0.5f, -0.5f, // Point G 6
-    0.5f,  -0.5f, 0.5f,  // Point H 7
-});
-
-constexpr auto cube_colors = std::to_array({
-    0.0f, 0.0f, 0.0f, 1.0f, // Point A 0
-    0.0f, 0.0f, 1.0f, 1.0f, // Point B 1
-    0.0f, 1.0f, 0.0f, 1.0f, // Point C 2
-    0.0f, 1.0f, 1.0f, 1.0f, // Point D 3
-    1.0f, 0.0f, 0.0f, 1.0f, // Point E 4
-    1.0f, 0.0f, 1.0f, 1.0f, // Point F 5
-    1.0f, 1.0f, 0.0f, 1.0f, // Point G 6
-    1.0f, 1.0f, 1.0f, 1.0f // Point H 7
-});
-
-constexpr auto cube_indices = std::to_array({
-    /*Above ABC,BCD*/
-    0u, 1u, 2u, 1u, 2u, 3u,
-    /*Following EFG,FGH*/
-    4u, 5u, 6u, 5u, 6u, 7u,
-    /*Left ABF,AEF*/
-    0u, 1u, 5u, 0u, 4u, 5u,
-    /*Right side CDH,CGH*/
-    2u, 3u, 7u, 2u, 6u, 7u,
-    /*ACG,AEG*/
-    0u, 2u, 6u, 0u, 4u, 6u,
-    /*Behind BFH,BDH*/
-    1u, 5u, 7u, 1u, 3u, 7u
-});
-// clang-format on
-
-} // namespace data
-
 auto engine::core::Core::loop() -> void
 {
     constexpr auto VERT_SH = R"(#version 450
@@ -314,31 +240,18 @@ void main()
     world.on_destroy<api::VBO<api::VAO::Attribute::COLOR>>().connect<api::VBO<api::VAO::Attribute::COLOR>::on_destroy>();
     world.on_destroy<api::EBO>().connect<api::EBO::on_destroy>();
 
-    {
-        for (int i = 1; i != 100; i++) {
-            const auto triangle = world.create();
-            api::VBO<api::VAO::Attribute::POSITION>::emplace(world, triangle, data::triangle_positions, 3);
-            api::VBO<api::VAO::Attribute::COLOR>::emplace(world, triangle, data::triangle_colors, 4);
-            world.emplace<api::Position3f>(triangle, glm::vec3{i * 1.5, 0, 0});
-            world.emplace<api::Rotation3f>(triangle, glm::vec3{i * 10, i * 10, i * 10});
-            world.emplace<api::Scale3f>(triangle, glm::vec3{i, i, i});
-        }
+    std::unique_ptr<api::Scene> scene{nullptr};
 
-        {
-            const auto square = world.create();
-            api::VBO<api::VAO::Attribute::POSITION>::emplace(world, square, data::square_positions, 3);
-            api::VBO<api::VAO::Attribute::COLOR>::emplace(world, square, data::square_colors, 4);
-            api::EBO::emplace(world, square, data::square_indices);
-        }
-
-        {
-            const auto cube = world.create();
-            api::VBO<api::VAO::Attribute::POSITION>::emplace(world, cube, data::cube_positions, 3);
-            api::VBO<api::VAO::Attribute::COLOR>::emplace(world, cube, data::cube_colors, 4);
-            api::EBO::emplace(world, cube, data::cube_indices);
-            world.emplace<api::Position3f>(cube, glm::vec3{0, 0, 2.0f});
-        }
+    if (m_module->getCategory() == api::Module::Category::SCENE) {
+        scene = std::unique_ptr<api::Scene>(reinterpret_cast<api::Scene *>(m_module->instance()));
     }
+
+    if (scene == nullptr) {
+        spdlog::error("engine::core::Core : A scene is required !");
+        return;
+    }
+
+    scene->onCreate(world);
 
     auto display_mode = api::VAO::DEFAULT_MODE;
 
@@ -348,22 +261,22 @@ void main()
 
     struct widgetDebugHandle {
         const std::string_view name;
-        bool flag;
+        bool is_displayed;
         std::function<void(bool &)> callable;
     };
 
     auto debugWidget = std::to_array<widgetDebugHandle>(
-        {{"Metrics", false, [](bool &flag) { ImGui::ShowMetricsWindow(&flag); }},
-         {"Demo", false, [](bool &flag) { ImGui::ShowDemoWindow(&flag); }},
+        {{"Metrics", false, [](bool &is_displayed) { ImGui::ShowMetricsWindow(&is_displayed); }},
+         {"Demo", false, [](bool &is_displayed) { ImGui::ShowDemoWindow(&is_displayed); }},
          {"Display Options",
           false,
-          [widget = widget::DisplayMode{}, &world, &display_mode](bool &flag) {
-              ImGui::Begin("Display Options", &flag);
+          [widget = widget::DisplayMode{}, &world, &display_mode](bool &is_displayed) {
+              ImGui::Begin("Display Options", &is_displayed);
               widget.draw(world, display_mode);
               ImGui::End();
           }},
-         {"Components Tree", false, [widget = widget::ComponentTree{}, &world](bool &flag) {
-              ImGui::Begin("Components", &flag);
+         {"Components Tree", false, [widget = widget::ComponentTree{}, &world](bool &is_displayed) {
+              ImGui::Begin("Components", &is_displayed);
               widget.draw(world);
               ImGui::End();
           }}});
@@ -393,17 +306,19 @@ void main()
                 [](const auto &) {}},
             event);
 
+        scene->onUpdate();
+
         if (timeElapsed) {
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
 
             ImGui::Begin("Debug Panel", nullptr);
-            for (auto &[name, flag, _] : debugWidget) { ImGui::Checkbox(name.data(), &flag); }
+            for (auto &[name, is_displayed, _] : debugWidget) { ImGui::Checkbox(name.data(), &is_displayed); }
             ImGui::End(); // Debug Panel
 
-            for (auto &[_, flag, func] : debugWidget) {
-                if (flag) { func(flag); }
+            for (auto &[_, is_displayed, func] : debugWidget) {
+                if (is_displayed) { func(is_displayed); }
             }
 
             ImGui::Render();
@@ -428,6 +343,8 @@ void main()
             m_window->render();
         }
     }
+
+    scene->onDestroy();
 
     world.clear();
 }

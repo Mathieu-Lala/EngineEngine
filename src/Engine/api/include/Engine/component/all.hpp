@@ -7,6 +7,7 @@
 #include <entt/entt.hpp>
 #include <spdlog/spdlog.h>
 #include <magic_enum.hpp>
+#include <glm/glm.hpp>
 
 #include "Engine/third_party.hpp"
 
@@ -71,8 +72,8 @@ struct VAO {
 
 template<VAO::Attribute A>
 struct VBO {
-    // static constexpr std::string name{std::string("VBO") + magic_enum::enum_name(A)};
-    static constexpr std::string_view name{"VBO"};
+     static std::string name;
+    // static constexpr std::string_view name{"VBO" + magic_enum::enum_name(A)};
 
     unsigned int object;
 
@@ -108,6 +109,9 @@ struct VBO {
         CALL_OPEN_GL(::glDeleteBuffers(1, &vbo.object));
     }
 };
+
+template<VAO::Attribute A>
+std::string VBO<A>::name = std::string("VBO") + magic_enum::enum_name(A).data();
 
 struct EBO {
     static constexpr std::string_view name{"EBO"};
