@@ -41,13 +41,15 @@ auto engine::core::Window::render() -> void { ::glfwSwapBuffers(m_handle); }
 template<>
 auto engine::core::Window::useEvent(const api::Pressed<api::MouseButton> &m) -> void
 {
-    ::ImGui_ImplGlfw_MouseButtonCallback(m_handle, m.source.button, GLFW_PRESS, 0 /* todo */);
+    ::ImGui_ImplGlfw_MouseButtonCallback(
+        m_handle, magic_enum::enum_integer(m.source.button), GLFW_PRESS, 0 /* todo */);
 }
 
 template<>
 auto engine::core::Window::useEvent(const api::Released<api::MouseButton> &m) -> void
 {
-    ::ImGui_ImplGlfw_MouseButtonCallback(m_handle, m.source.button, GLFW_RELEASE, 0 /* todo */);
+    ::ImGui_ImplGlfw_MouseButtonCallback(
+        m_handle, magic_enum::enum_integer(m.source.button), GLFW_RELEASE, 0 /* todo */);
 }
 
 template<>

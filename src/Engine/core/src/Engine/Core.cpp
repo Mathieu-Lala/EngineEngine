@@ -13,6 +13,7 @@
 #include "Engine/dll/Loader.hpp"
 #include "Engine/third_party.hpp"
 
+#include "Engine/Camera.hpp"
 #include "Engine/graphics/Shader.hpp"
 
 #include "Engine/widget/DisplayOption.hpp"
@@ -33,12 +34,21 @@ auto engine::core::Core::main([[maybe_unused]] int argc, [[maybe_unused]] char *
     int window_height = 300;
 
     CLI::App app{PROJECT_NAME " description", argv[0]};
+    app.set_config("--config", "engine-config.ini");
     app.add_option("-m,--module", module_name, "Module to load.");
     app.add_option("--glfw-major", glfw_major, "Major version of GLFW.");
     app.add_option("--glfw-minor", glfw_minor, "Minor version of GLFW.");
     app.add_option("--window-width", window_width, "Initial width of the rendering window.");
     app.add_option("--window-height", window_height, "Initial height of the rendering window.");
-    // app.set_version_flag("-v,--version", "VERSION v" PROJECT_VERSION);
+    app.add_flag(
+        "--version",
+        [](auto v) -> void {
+            if (v == 1) {
+                std::cout << PROJECT_VERSION << "\n";
+                std::exit(0);
+            }
+        },
+        "Print the version number and exit.");
 
     CLI11_PARSE(app, argc, argv);
 
@@ -77,10 +87,7 @@ auto engine::core::Core::main([[maybe_unused]] int argc, [[maybe_unused]] char *
     return 0;
 }
 
-engine::core::Core::~Core()
-{
-    ::glfwTerminate();
-}
+engine::core::Core::~Core() { ::glfwTerminate(); }
 
 auto engine::core::Core::system_rendering(Shader &shader, entt::registry &world) const noexcept
 {
@@ -234,11 +241,12 @@ void main()
     shader.use();
 
     entt::registry world;
-    world.on_destroy<api::VAO>().connect<api::VAO::on_destroy>();
-    world.on_destroy<api::VBO<api::VAO::Attribute::POSITION>>()
-        .connect<api::VBO<api::VAO::Attribute::POSITION>::on_destroy>();
-    world.on_destroy<api::VBO<api::VAO::Attribute::COLOR>>().connect<api::VBO<api::VAO::Attribute::COLOR>::on_destroy>();
-    world.on_destroy<api::EBO>().connect<api::EBO::on_destroy>();
+#define SET_DESTRUCTOR(Type) world.on_destroy<Type>().connect<Type::on_destroy>()
+    SET_DESTRUCTOR(api::VAO);
+    SET_DESTRUCTOR(api::VBO<api::VAO::Attribute::POSITION>);
+    SET_DESTRUCTOR(api::VBO<api::VAO::Attribute::COLOR>);
+    SET_DESTRUCTOR(api::EBO);
+#undef SET_DESTRUCTOR
 
     std::unique_ptr<api::Scene> scene{nullptr};
 
@@ -255,9 +263,9 @@ void main()
 
     auto display_mode = api::VAO::DEFAULT_MODE;
 
-    const auto projection =
-        glm::perspective(glm::radians(45.0f), m_window->getAspectRatio<float>(), 0.1f, 100.0f);
-    shader.setUniform("projection", projection);
+    Camera camera{*m_window, glm::vec3{5, 5, 5}};
+
+    shader.setUniform("projection", camera.getProjection());
 
     struct widgetDebugHandle {
         const std::string_view name;
@@ -270,16 +278,49 @@ void main()
          {"Demo", false, [](bool &is_displayed) { ImGui::ShowDemoWindow(&is_displayed); }},
          {"Display Options",
           false,
-          [widget = widget::DisplayMode{}, &world, &display_mode](bool &is_displayed) {
+          [widget = widget::DisplayMode{display_mode}, &world](bool &is_displayed) {
               ImGui::Begin("Display Options", &is_displayed);
-              widget.draw(world, display_mode);
+              widget.draw(world);
               ImGui::End();
           }},
-         {"Components Tree", false, [widget = widget::ComponentTree{}, &world](bool &is_displayed) {
+         {"Components Tree",
+          false,
+          [widget = widget::ComponentTree{}, &world](bool &is_displayed) {
               ImGui::Begin("Components", &is_displayed);
               widget.draw(world);
               ImGui::End();
+          }},
+         {"Camera", true, [this, &shader, &camera, auto_move = true](bool &is_displayed) mutable {
+              ImGui::Begin("Camera", &is_displayed);
+              ImGui::Text("Projection Mode ");
+              bool projection_changed{false};
+              int new_projection = magic_enum::enum_integer(camera.getProjectionType());
+              for (const auto &i : magic_enum::enum_values<Camera::ProjectionType>()) {
+                  ImGui::SameLine();
+                  projection_changed |= ImGui::RadioButton(
+                      magic_enum::enum_name(i).data(), &new_projection, magic_enum::enum_integer(i));
+              }
+              if (projection_changed) {
+                  camera.setProjectionType(magic_enum::enum_cast<Camera::ProjectionType>(new_projection).value());
+                  shader.setUniform("projection", camera.getProjection());
+              }
+              ImGui::InputFloat3("Position", &camera.getPosition().x, 3);
+              ImGui::SameLine();
+              ImGui::Checkbox("Automove", &auto_move);
+              if (auto_move) {
+                  const auto radius = 10.0f;
+                  camera.getPosition().x = static_cast<float>(std::sin(::glfwGetTime())) * radius;
+                  camera.getPosition().y = static_cast<float>(std::sin(::glfwGetTime())) * radius;
+                  camera.getPosition().z = static_cast<float>(std::cos(::glfwGetTime())) * radius;
+              }
+              ImGui::End();
           }}});
+
+    glm::vec2 mouse_pos;
+    glm::vec2 mouse_pos_when_pressed;
+
+    std::array<bool, magic_enum::enum_integer(api::MouseButton::Button::BUTTON_LAST)> state_mouse_button;
+    std::fill(std::begin(state_mouse_button), std::end(state_mouse_button), false);
 
     m_is_running = true;
     while (m_is_running && m_window->isOpen()) {
@@ -290,16 +331,25 @@ void main()
         std::visit(
             overloaded{
                 [&](const api::OpenWindow &) {
-                    spdlog::info("window opened");
                     m_event_manager.setCurrentTimepoint(std::chrono::steady_clock::now());
                 },
-                [&](const api::CloseWindow &) {
-                    m_is_running = false;
-                    spdlog::info("window closed");
-                },
+                [&](const api::CloseWindow &) { m_is_running = false; },
                 [&timeElapsed](const api::TimeElapsed &) { timeElapsed = true; },
-                [&](const api::Pressed<api::MouseButton> &e) { m_window->useEvent(e); },
-                [&](const api::Released<api::MouseButton> &e) { m_window->useEvent(e); },
+                [&mouse_pos](const api::Moved<api::Mouse> &mouse) {
+                    mouse_pos = {mouse.source.x, mouse.source.y};
+                },
+                [&](const api::Pressed<api::MouseButton> &e) {
+                    m_window->useEvent(e);
+
+                    state_mouse_button[static_cast<std::size_t>(magic_enum::enum_integer(e.source.button))] = true;
+                    mouse_pos_when_pressed = {e.source.mouse.x, e.source.mouse.y};
+                },
+                [&](const api::Released<api::MouseButton> &e) {
+                    m_window->useEvent(e);
+
+                    state_mouse_button[static_cast<std::size_t>(magic_enum::enum_integer(e.source.button))] =
+                        false;
+                },
                 [&](const api::Pressed<api::Key> &e) { m_window->useEvent(e); },
                 [&](const api::Released<api::Key> &e) { m_window->useEvent(e); },
                 [&](const api::Character &e) { m_window->useEvent(e); },
@@ -309,6 +359,19 @@ void main()
         scene->onUpdate();
 
         if (timeElapsed) {
+            const auto dt_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(std::get<api::TimeElapsed>(event).elapsed);
+
+            for (auto i = 0ul; i != state_mouse_button.size(); i++) {
+                if (state_mouse_button[i]) {
+                    camera.handleMouseInput(
+                        magic_enum::enum_cast<api::MouseButton::Button>(static_cast<int>(i)).value(),
+                        mouse_pos,
+                        mouse_pos_when_pressed,
+                        dt_ms);
+                }
+            }
+
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
@@ -323,12 +386,7 @@ void main()
 
             ImGui::Render();
 
-            const auto radius = 10.0f;
-            const auto camX = static_cast<float>(std::sin(::glfwGetTime())) * radius;
-            const auto camY = static_cast<float>(std::sin(::glfwGetTime())) * radius;
-            const auto camZ = static_cast<float>(std::cos(::glfwGetTime())) * radius;
-            const auto view = glm::lookAt(
-                glm::vec3(camX, camY, camZ), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+            const auto view = glm::lookAt(camera.getPosition(), camera.getTargetCenter(), camera.getUp());
             shader.setUniform("view", view);
 
             constexpr auto CLEAR_COLOR = glm::vec4{0.0f, 1.0f, 0.2f, 1.0f};

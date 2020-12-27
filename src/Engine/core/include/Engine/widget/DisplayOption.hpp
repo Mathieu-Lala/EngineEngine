@@ -11,7 +11,9 @@ namespace core {
 namespace widget {
 
 struct DisplayMode {
-    auto draw(entt::registry &world, api::VAO::DisplayMode &display_mode) const -> void
+    api::VAO::DisplayMode &display_mode;
+
+    auto draw(entt::registry &world) const -> void
     {
         constexpr auto enum_name = magic_enum::enum_type_name<api::VAO::DisplayMode>()
             .substr(std::strlen("engine::api::"));
@@ -23,7 +25,7 @@ struct DisplayMode {
                     display_mode = i;
                     for (const auto &entity : world.view<api::VAO>()) {
                         world.patch<api::VAO>(
-                            entity, [&display_mode](api::VAO &vao) { vao.mode = display_mode; });
+                            entity, [this](api::VAO &vao) { vao.mode = display_mode; });
                     }
                 }
                 if (is_selected) { ImGui::SetItemDefaultFocus(); }

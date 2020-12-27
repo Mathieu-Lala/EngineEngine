@@ -126,10 +126,12 @@ private:
         ::glfwGetCursorPos(window, &x, &y);
         switch (action) {
         case GLFW_PRESS:
-            s_instance->m_buffer_events.emplace_back(api::Pressed<api::MouseButton>{button, {x, y}});
+            s_instance->m_buffer_events.emplace_back(
+                api::Pressed<api::MouseButton>{api::MouseButton::toButton(button), {x, y}});
             break;
         case GLFW_RELEASE:
-            s_instance->m_buffer_events.emplace_back(api::Released<api::MouseButton>{button, {x, y}});
+            s_instance->m_buffer_events.emplace_back(
+                api::Released<api::MouseButton>{api::MouseButton::toButton(button), {x, y}});
             break;
             // default: std::abort(); break;
         };

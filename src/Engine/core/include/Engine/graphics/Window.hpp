@@ -1,5 +1,7 @@
 #pragma once
 
+#include <glm/vec2.hpp>
+
 #include "Engine/third_party.hpp"
 #include "Engine/Event.hpp"
 
@@ -23,12 +25,21 @@ public:
     auto render() -> void;
 
     template<typename T = double>
-    [[nodiscard]] auto getAspectRatio() const noexcept
+    [[nodiscard]] auto getAspectRatio() const noexcept -> T
     {
         int width{};
         int height{};
         ::glfwGetWindowSize(m_handle, &width, &height);
         return static_cast<T>(width) / static_cast<T>(height);
+    }
+
+    template<typename T = double>
+    [[nodiscard]] auto getSize() const noexcept -> glm::vec<2, T>
+    {
+        int width{};
+        int height{};
+        ::glfwGetWindowSize(m_handle, &width, &height);
+        return {static_cast<T>(width), static_cast<T>(height)};
     }
 
     template<typename EventType>
