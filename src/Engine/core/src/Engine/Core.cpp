@@ -20,6 +20,7 @@
 
 #include "Engine/widget/DisplayOption.hpp"
 #include "Engine/widget/ComponentTree.hpp"
+#include "Engine/widget/CameraWidget.hpp"
 
 #include "Engine/helpers/overloaded.hpp"
 
@@ -264,9 +265,9 @@ void main()
     scene->onCreate(world);
 
     auto display_mode = api::VAO::DEFAULT_MODE;
+    bool camera_auto_move{true};
 
     Camera camera{*m_window, glm::vec3{5, 5, 5}};
-    bool camera_auto_move{true};
 
     struct widgetDebugHandle {
         const std::string_view name;
@@ -293,32 +294,9 @@ void main()
           }},
          {"Camera",
           true,
-          [this, &shader, &camera, &camera_auto_move](bool &is_displayed) {
+          [widget = widget::CameraWidget{shader, camera}, &camera_auto_move](bool &is_displayed) {
               ImGui::Begin("Camera", &is_displayed);
-              ImGui::Text("Projection Mode ");
-              bool projection_changed{false};
-              int new_projection = magic_enum::enum_integer(camera.getProjectionType());
-              for (const auto &i : magic_enum::enum_values<Camera::ProjectionType>()) {
-                  ImGui::SameLine();
-                  projection_changed |= ImGui::RadioButton(
-                      magic_enum::enum_name(i).data(), &new_projection, magic_enum::enum_integer(i));
-              }
-              if (projection_changed) {
-                  camera.setProjectionType(magic_enum::enum_cast<Camera::ProjectionType>(new_projection).value());
-                  shader.setUniform("projection", camera.getProjection());
-              }
-              ImGui::InputFloat3("Position", &camera.getPosition().x, 3);
-              ImGui::SameLine();
-              ImGui::Checkbox("Automove", &camera_auto_move);
-              auto new_fov = camera.getFOV();
-              if (ImGui::SliderFloat("FOV", &new_fov, 0.001f, 179.999f, "%.3f")) { camera.setFOV(new_fov); }
-              auto neaw_near = camera.getNear();
-              if (ImGui::SliderFloat("Near", &neaw_near, 0.001f, 1000.0f, "%.3f")) {
-                  camera.setNear(neaw_near);
-              }
-              auto near_far = camera.getFar();
-              if (ImGui::SliderFloat("Far", &near_far, 0.001f, 1000.0f, "%.3f")) { camera.setFar(near_far); }
-
+              widget.draw(camera_auto_move);
               ImGui::End();
           }},
          {"Events", true, [&](bool &is_displayed) {
@@ -429,6 +407,8 @@ void main()
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
+
+            scene->onDrawUI();
 
             ImGui::Begin("Debug Panel", nullptr);
             for (auto &[name, is_displayed, _] : debugWidget) { ImGui::Checkbox(name.data(), &is_displayed); }

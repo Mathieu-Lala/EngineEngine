@@ -32,6 +32,8 @@ public:
 
     virtual auto onCreate(entt::registry &world) noexcept -> void = 0;
 
+    virtual auto onDrawUI() noexcept -> void = 0;
+
     virtual auto onUpdate() noexcept -> void = 0;
 
     virtual auto onDestroy() noexcept -> void = 0;
