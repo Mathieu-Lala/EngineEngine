@@ -91,7 +91,7 @@ public:
     auto onCreate(entt::registry &world) noexcept -> void
     {
         m_world = &world;
-        for (int i = 1; i != 100; i++) {
+        for (int i = 1; i != 1000; i++) {
             const auto triangle = world.create();
             engine::api::VBO<engine::api::VAO::Attribute::POSITION>::emplace(world, triangle, data::triangle_positions, 3);
             engine::api::VBO<engine::api::VAO::Attribute::COLOR>::emplace(world, triangle, data::triangle_colors, 4);

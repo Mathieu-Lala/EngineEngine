@@ -48,7 +48,22 @@ public:
         return event;
     }
 
+    auto getLastEvent() const noexcept -> const api::Event &
+    {
+        for (auto i = m_events_processed.size(); i; i--) {
+            const auto &event = m_events_processed.at(i - 1);
+            if (!std::holds_alternative<api::TimeElapsed>(event)) { return event; }
+        }
+        return m_events_processed.back();
+    }
+
+    auto getEventsProcessed() const noexcept -> const std::vector<api::Event> & { return m_events_processed; }
+
     auto setCurrentTimepoint(const std::chrono::steady_clock::time_point &t) { m_lastTimePoint = t; }
+
+    auto getTimeScaler() const noexcept -> const double & { return m_time_scaler; }
+
+    auto setTimeScaler(double value) noexcept { m_time_scaler = value; }
 
 private:
     static EventManager *s_instance;
@@ -59,12 +74,15 @@ private:
 
     std::vector<api::Event> m_events_processed; // previous event
 
+    double m_time_scaler{1.0};
+
     auto fetchEvent() -> api::Event
     {
         ::glfwPollEvents();
 
         if (m_buffer_events.empty()) {
-            return api::TimeElapsed{getElapsedTime()};
+            return api::TimeElapsed{std::chrono::nanoseconds{
+                static_cast<std::int64_t>(static_cast<double>(getElapsedTime().count()) * m_time_scaler)}};
         } else {
             const auto event = m_buffer_events.front();
             m_buffer_events.erase(m_buffer_events.begin());
@@ -99,13 +117,13 @@ private:
     static auto callback_eventKeyBoard(GLFWwindow *, int key, int scancode, int action, int mods) -> void
     {
         // clang-format off
-        api::Key k{
+        const api::Key k{
             .alt        = !!(mods & GLFW_MOD_ALT),
             .control    = !!(mods & GLFW_MOD_CONTROL),
             .system     = !!(mods & GLFW_MOD_SUPER),
             .shift      = !!(mods & GLFW_MOD_SHIFT),
             .scancode   = scancode,
-            .key        = key
+            .keycode    = magic_enum::enum_cast<api::Key::Code>(key).value_or(api::Key::Code::KEY_UNKNOWN)
         };
         // clang-format on
         switch (action) {

@@ -24,6 +24,8 @@ public:
 
     auto render() -> void;
 
+    auto screenshot(const std::string_view filename) -> bool;
+
     template<typename T = double>
     [[nodiscard]] auto getAspectRatio() const noexcept -> T
     {

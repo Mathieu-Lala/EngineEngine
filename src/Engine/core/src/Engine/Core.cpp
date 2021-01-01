@@ -1,6 +1,7 @@
 #include <cmath>
 
 #include <spdlog/spdlog.h>
+#include <fmt/format.h>
 #include <CLI/CLI.hpp>
 #include <magic_enum.hpp>
 #include <glm/glm.hpp>
@@ -15,6 +16,7 @@
 
 #include "Engine/Camera.hpp"
 #include "Engine/graphics/Shader.hpp"
+#include "Engine/json/Event.hpp"
 
 #include "Engine/widget/DisplayOption.hpp"
 #include "Engine/widget/ComponentTree.hpp"
@@ -264,8 +266,7 @@ void main()
     auto display_mode = api::VAO::DEFAULT_MODE;
 
     Camera camera{*m_window, glm::vec3{5, 5, 5}};
-
-    shader.setUniform("projection", camera.getProjection());
+    bool camera_auto_move{true};
 
     struct widgetDebugHandle {
         const std::string_view name;
@@ -290,7 +291,9 @@ void main()
               widget.draw(world);
               ImGui::End();
           }},
-         {"Camera", true, [this, &shader, &camera, auto_move = true](bool &is_displayed) mutable {
+         {"Camera",
+          true,
+          [this, &shader, &camera, &camera_auto_move](bool &is_displayed) {
               ImGui::Begin("Camera", &is_displayed);
               ImGui::Text("Projection Mode ");
               bool projection_changed{false};
@@ -306,21 +309,50 @@ void main()
               }
               ImGui::InputFloat3("Position", &camera.getPosition().x, 3);
               ImGui::SameLine();
-              ImGui::Checkbox("Automove", &auto_move);
-              if (auto_move) {
-                  const auto radius = 10.0f;
-                  camera.getPosition().x = static_cast<float>(std::sin(::glfwGetTime())) * radius;
-                  camera.getPosition().y = static_cast<float>(std::sin(::glfwGetTime())) * radius;
-                  camera.getPosition().z = static_cast<float>(std::cos(::glfwGetTime())) * radius;
+              ImGui::Checkbox("Automove", &camera_auto_move);
+              auto new_fov = camera.getFOV();
+              if (ImGui::SliderFloat("FOV", &new_fov, 0.001f, 179.999f, "%.3f")) { camera.setFOV(new_fov); }
+              auto neaw_near = camera.getNear();
+              if (ImGui::SliderFloat("Near", &neaw_near, 0.001f, 1000.0f, "%.3f")) {
+                  camera.setNear(neaw_near);
               }
+              auto near_far = camera.getFar();
+              if (ImGui::SliderFloat("Far", &near_far, 0.001f, 1000.0f, "%.3f")) { camera.setFar(near_far); }
+
+              ImGui::End();
+          }},
+         {"Events", true, [&](bool &is_displayed) {
+              ImGui::Begin("Events", &is_displayed);
+              ImGui::Text("Number of Event processed: %ld", m_event_manager.getEventsProcessed().size());
+              auto v = static_cast<float>(m_event_manager.getTimeScaler());
+              if (ImGui::SliderFloat("Time scaler", &v, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_Logarithmic)) {
+                  m_event_manager.setTimeScaler(static_cast<double>(v));
+              }
+
+              const auto event = m_event_manager.getLastEvent();
+
+              nlohmann::json as_json;
+              to_json(as_json, event);
+              ImGui::Text("Last event :\n%s", as_json.dump(4).data());
+
               ImGui::End();
           }}});
 
     glm::vec2 mouse_pos;
     glm::vec2 mouse_pos_when_pressed;
+    std::int64_t timeElapsedSinceBegining{0l};
+
+    std::unordered_map<api::Key::Code, bool> keyboard_state;
+    for (const auto &i : magic_enum::enum_values<api::Key::Code>()) { keyboard_state[i] = false; }
 
     std::array<bool, magic_enum::enum_integer(api::MouseButton::Button::BUTTON_LAST)> state_mouse_button;
     std::fill(std::begin(state_mouse_button), std::end(state_mouse_button), false);
+
+    constexpr auto time_to_string = [](std::time_t now) -> std::string {
+        const auto tp = std::localtime(&now);
+        char buffer[32];
+        return std::strftime(buffer, sizeof(buffer), "%Y-%m-%d_%H-%M-%S", tp) ? buffer : "1970-01-01_00:00:00";
+    };
 
     m_is_running = true;
     while (m_is_running && m_window->isOpen()) {
@@ -350,8 +382,14 @@ void main()
                     state_mouse_button[static_cast<std::size_t>(magic_enum::enum_integer(e.source.button))] =
                         false;
                 },
-                [&](const api::Pressed<api::Key> &e) { m_window->useEvent(e); },
-                [&](const api::Released<api::Key> &e) { m_window->useEvent(e); },
+                [&](const api::Pressed<api::Key> &e) {
+                    m_window->useEvent(e);
+                    keyboard_state[e.source.keycode] = true;
+                },
+                [&](const api::Released<api::Key> &e) {
+                    m_window->useEvent(e);
+                    keyboard_state[e.source.keycode] = false;
+                },
                 [&](const api::Character &e) { m_window->useEvent(e); },
                 [](const auto &) {}},
             event);
@@ -361,9 +399,10 @@ void main()
         if (timeElapsed) {
             const auto dt_ms =
                 std::chrono::duration_cast<std::chrono::milliseconds>(std::get<api::TimeElapsed>(event).elapsed);
+            timeElapsedSinceBegining += dt_ms.count();
 
             for (auto i = 0ul; i != state_mouse_button.size(); i++) {
-                if (state_mouse_button[i]) {
+                if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow) && state_mouse_button[i]) {
                     camera.handleMouseInput(
                         magic_enum::enum_cast<api::MouseButton::Button>(static_cast<int>(i)).value(),
                         mouse_pos,
@@ -372,13 +411,28 @@ void main()
                 }
             }
 
+            if (keyboard_state[api::Key::Code::KEY_F12]) {
+                spdlog::info("take screenshot");
+                std::filesystem::create_directories("screenshot/");
+                const auto file = fmt::format("screenshot/{}.png", time_to_string(std::time(nullptr)));
+                if (!m_window->screenshot(file)) { spdlog::warn("failed to take a screenshot: {}", file); }
+            }
+
+            if (camera_auto_move) {
+                constexpr auto radius = 10.0f;
+                camera.setPosition(
+                    {std::sin(static_cast<float>(timeElapsedSinceBegining) / 1000.0f) * radius,
+                     std::sin(static_cast<float>(timeElapsedSinceBegining) / 1000.0f) * radius / 3.0f,
+                     std::cos(static_cast<float>(timeElapsedSinceBegining) / 1000.0f) * radius * 3.0f});
+            }
+
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
 
             ImGui::Begin("Debug Panel", nullptr);
             for (auto &[name, is_displayed, _] : debugWidget) { ImGui::Checkbox(name.data(), &is_displayed); }
-            ImGui::End(); // Debug Panel
+            ImGui::End();
 
             for (auto &[_, is_displayed, func] : debugWidget) {
                 if (is_displayed) { func(is_displayed); }
@@ -386,8 +440,17 @@ void main()
 
             ImGui::Render();
 
-            const auto view = glm::lookAt(camera.getPosition(), camera.getTargetCenter(), camera.getUp());
-            shader.setUniform("view", view);
+            if (camera.hasChanged<Camera::Matrix::VIEW>()) {
+                const auto view = glm::lookAt(camera.getPosition(), camera.getTargetCenter(), camera.getUp());
+                shader.setUniform("view", view);
+                camera.setChangedFlag<Camera::Matrix::VIEW>(false);
+            }
+
+            if (camera.hasChanged<Camera::Matrix::PROJECTION>()) {
+                const auto projection = camera.getProjection();
+                shader.setUniform("projection", projection);
+                camera.setChangedFlag<Camera::Matrix::PROJECTION>(false);
+            }
 
             constexpr auto CLEAR_COLOR = glm::vec4{0.0f, 1.0f, 0.2f, 1.0f};
 

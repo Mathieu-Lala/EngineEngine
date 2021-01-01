@@ -15,7 +15,10 @@ struct Camera {
         getFrustrumInfo();
     }
 
-    enum class ProjectionType { PRESPECTIVE, ORTHOGONAL };
+    enum class ProjectionType {
+        PRESPECTIVE,
+        // ORTHOGONAL
+    };
 
     constexpr auto getProjectionType() const noexcept { return projection_type; }
 
@@ -30,16 +33,50 @@ struct Camera {
         //             [](const Window &) { return glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, -5.0f, 5.0f); }});
         //        return projection_provider.at(static_cast<std::size_t>(projection_type))(window);
 
-        return glm::perspective(glm::radians(fov), m_window.getAspectRatio<float>(), 0.1f, 100.0f);
+        return glm::perspective(glm::radians(m_fov), m_window.getAspectRatio<float>(), m_near, m_far);
     };
 
     constexpr auto getPosition() const noexcept -> const glm::vec3 & { return position; }
 
     auto getPosition() noexcept -> glm::vec3 & { return position; }
 
+    auto setPosition(glm::vec3 pos) noexcept
+    {
+        position = std::move(pos);
+        setChangedFlag<Matrix::VIEW>(true);
+    }
+
     constexpr auto getTargetCenter() const noexcept -> const glm::vec3 & { return target_center; }
 
     constexpr auto getUp() const noexcept -> const glm::vec3 & { return up; }
+
+
+    [[nodiscard]] constexpr auto getFOV() const noexcept { return m_fov; }
+
+    auto setFOV(float value) noexcept -> void
+    {
+        m_fov = value;
+        setChangedFlag<Matrix::PROJECTION>(true);
+    }
+
+
+    [[nodiscard]] constexpr auto getNear() const noexcept { return m_near; }
+
+    auto setNear(float value) noexcept -> void
+    {
+        m_near = value;
+        setChangedFlag<Matrix::PROJECTION>(true);
+    }
+
+
+    [[nodiscard]] constexpr auto getFar() const noexcept { return m_far; }
+
+    auto setFar(float value) noexcept -> void
+    {
+        m_far = value;
+        setChangedFlag<Matrix::PROJECTION>(true);
+    }
+
 
     template<typename T>
     auto rotate(T fractionChangeX, T fractionChangeY)
@@ -51,19 +88,11 @@ struct Camera {
             const auto sinAng = std::sin(angle / static_cast<T>(2.0));
             const auto norm = std::sqrt(axis.x * axis.x + axis.y * axis.y + axis.z * axis.z);
 
-            glm::quat res;
-
-            res.x = axis.x / norm;
-            res.y = axis.y / norm;
-            res.z = axis.z / norm;
-
-            res.w = static_cast<float>(cosAng); // w
-
-            res.x *= static_cast<float>(sinAng); // x
-            res.y *= static_cast<float>(sinAng); // y
-            res.z *= static_cast<float>(sinAng); // z
-
-            return res;
+            return {
+                static_cast<float>(sinAng) * axis.x / norm,
+                static_cast<float>(sinAng) * axis.y / norm,
+                static_cast<float>(sinAng) * axis.z / norm,
+                static_cast<float>(cosAng)};
         };
 
         const auto horizRotAngle = DEFAULT_ROTATE_SPEED * fractionChangeY;
@@ -104,6 +133,7 @@ struct Camera {
 
         position += translateVec * DEFAULT_TRANSLATE_SPEED;
         target_center += translateVec * DEFAULT_TRANSLATE_SPEED;
+        setChangedFlag<Matrix::VIEW>(true);
     }
 
     auto handleMouseInput(
@@ -137,6 +167,28 @@ struct Camera {
         }
     }
 
+    enum class Matrix { VIEW, PROJECTION };
+
+    template<Matrix M>
+    auto setChangedFlag(bool value) noexcept -> void
+    {
+        if constexpr (M == Matrix::VIEW) {
+            m_view_changed = value;
+        } else {
+            m_proj_changed = value;
+        }
+    }
+
+    template<Matrix M>
+    [[nodiscard]] constexpr auto hasChanged() const noexcept
+    {
+        if constexpr (M == Matrix::VIEW) {
+            return m_view_changed;
+        } else {
+            return m_proj_changed;
+        }
+    }
+
 private:
     const Window &m_window;
 
@@ -150,7 +202,12 @@ private:
 
     ProjectionType projection_type{ProjectionType::PRESPECTIVE};
 
-    float fov = 45.0f;
+    float m_fov = 45.0f;
+    float m_near = 0.1f;
+    float m_far = 100.0f;
+
+    bool m_view_changed{false};
+    bool m_proj_changed{true};
 
     auto getFrustrumInfo() -> void
     {
@@ -167,12 +224,14 @@ private:
             }
         };
 
+        m_view_changed = true;
+
         const auto viewDir = glm::normalize(target_center - position);
 
         m_imagePlaneVertDir = glm::normalize(makeOrthogonalTo(up, viewDir));
         m_imagePlaneHorizDir = glm::normalize(glm::cross(viewDir, m_imagePlaneVertDir));
 
-        m_display.y = 2.0f * glm::length(target_center - position) * std::tan(0.5f * fov);
+        m_display.y = 2.0f * glm::length(target_center - position) * std::tan(0.5f * m_fov);
         m_display.x = m_display.y * m_window.getAspectRatio<float>();
     }
 };

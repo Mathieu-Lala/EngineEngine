@@ -8,31 +8,47 @@
 
 namespace nlohmann {
 
+using namespace engine::api;
+
 template<>
-struct adl_serializer<engine::Joystick::Axis> {
-    static void to_json(nlohmann::json &j, const engine::Joystick::Axis &axis)
+struct adl_serializer<Joystick::Axis> {
+    static void to_json(nlohmann::json &j, const Joystick::Axis &axis)
     {
-        j = nlohmann::json{{"axis", magic_enum::enum_name(axis)}};
+        j = magic_enum::enum_name(axis).data();
     }
 
-    static void from_json(const nlohmann::json &j, engine::Joystick::Axis &axis)
+    static void from_json(const nlohmann::json &j, Joystick::Axis &axis)
     {
         std::string value = j.at("axis");
-        axis = magic_enum::enum_cast<engine::Joystick::Axis>(value).value_or(engine::Joystick::AXES_MAX);
+        axis = magic_enum::enum_cast<Joystick::Axis>(value).value_or(Joystick::AXES_MAX);
     }
 };
 
 template<>
-struct adl_serializer<engine::Joystick::Buttons> {
-    static void to_json(nlohmann::json &j, const engine::Joystick::Buttons &axis)
+struct adl_serializer<Joystick::Buttons> {
+    static void to_json(nlohmann::json &j, const Joystick::Buttons &axis)
     {
-        j = nlohmann::json{{"button", magic_enum::enum_name(axis)}};
+        j = magic_enum::enum_name(axis).data();
     }
 
-    static void from_json(const nlohmann::json &j, engine::Joystick::Buttons &button)
+    static void from_json(const nlohmann::json &j, Joystick::Buttons &button)
     {
         std::string value = j.at("button");
-        button = magic_enum::enum_cast<engine::Joystick::Buttons>(value).value_or(engine::Joystick::BUTTONS_MAX);
+        button = magic_enum::enum_cast<Joystick::Buttons>(value).value_or(Joystick::BUTTONS_MAX);
+    }
+};
+
+template<>
+struct adl_serializer<Key::Code> {
+    static void to_json(nlohmann::json &j, const Key::Code &keycode)
+    {
+        j = magic_enum::enum_name(keycode).data();
+    }
+
+    static void from_json(const nlohmann::json &j, Key::Code &keycode)
+    {
+        std::string value = j.at("keycode");
+        keycode = magic_enum::enum_cast<Key::Code>(value).value_or(Key::Code::KEY_UNKNOWN);
     }
 };
 
@@ -69,6 +85,7 @@ void deserialize(const nlohmann::json &j, Param &... param)
     (top.at(std::string{EventType::elements[cur_elem++]}).get_to(param), ...);
 }
 
+namespace api {
 
 template<typename EventType>
 void to_json(nlohmann::json &j, [[maybe_unused]] const EventType &event) requires(EventType::elements.empty())
@@ -166,6 +183,7 @@ void from_json(const nlohmann::json &j, EventType &event) requires(EventType::el
     deserialize<EventType>(j, elem0, elem1, elem2, elem3, elem4, elem5);
 }
 
+} // namespace api
 
 template<typename... T>
 void choose_variant(const nlohmann::json &j, std::variant<std::monostate, T...> &variant)
@@ -187,12 +205,13 @@ void choose_variant(const nlohmann::json &j, std::variant<std::monostate, T...> 
     (try_variant.template operator()<T>(), ...);
 }
 
-inline void from_json(const nlohmann::json &j, Event &event) { choose_variant(j, event); }
+inline void from_json(const nlohmann::json &j, api::Event &event) { choose_variant(j, event); }
 
-inline void to_json(nlohmann::json &j, const Event &event)
+inline void to_json(nlohmann::json &j, const api::Event &event)
 {
     std::visit(
-        overloaded{[]([[maybe_unused]] const std::monostate &) {}, [&j](const auto &e) { to_json(j, e); }}, event);
+        core::overloaded{[]([[maybe_unused]] const std::monostate &) {}, [&j](const auto &e) { to_json(j, e); }},
+        event);
 }
 
 } // namespace engine
